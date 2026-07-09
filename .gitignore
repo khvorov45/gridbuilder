@@ -1,0 +1,11 @@
+# Tools
+*.vscode
+ols.json
+odinfmt.json
+*.rdbg
+
+# Binaries
+*.exe
+*.pdb
+*.rdi
+
