@@ -2,6 +2,7 @@ package main
 
 import "core:mem"
 import "core:sys/windows"
+import "vendor:directx/d3d11"
 
 Byte :: 1
 Kilobyte :: 1024 * Byte
@@ -9,6 +10,7 @@ Megabyte :: 1024 * Kilobyte
 Gigabyte :: 1024 * Megabyte
 
 main :: proc() {
+	defer windows.ExitProcess(0)
 
 	// NOTE: Allocate
 	arena: mem.Arena
@@ -62,16 +64,55 @@ main :: proc() {
 
 		// NOTE: The window will not show up yet but this will prevent a white flash at least on windows 11
 		toggle_fullscreen(window.hwnd, &window.prev)
+
+		// NOTE: Does not fail apparently
+		// If the window was previously visible, the return value is nonzero.
+		// If the window was previously hidden, the return value is zero.
+		windows.ShowWindow(window.hwnd, windows.SW_SHOWDEFAULT)
 	}
 
-	// NOTE: Does not fail apparently
-	// If the window was previously visible, the return value is nonzero.
-	// If the window was previously hidden, the return value is zero.
-	windows.ShowWindow(window.hwnd, windows.SW_SHOWDEFAULT)
+	// NOTE: Set up D3D11
+	d3d11_data: struct {
+		device:   ^d3d11.IDevice,
+		context_: ^d3d11.IDeviceContext,
+	}
 
-	msg: windows.MSG
+	{
+
+		levels: []d3d11.FEATURE_LEVEL = {._11_0}
+		create_device_result := d3d11.CreateDevice(
+			nil,
+			.HARDWARE,
+			nil,
+			{.DEBUG},
+			raw_data(levels),
+			u32(len(levels)),
+			d3d11.SDK_VERSION,
+			&d3d11_data.device,
+			nil,
+			&d3d11_data.context_,
+		)
+		assert(windows.SUCCEEDED(create_device_result))
+
+		{
+			info: ^d3d11.IInfoQueue
+
+			query_interface_result := d3d11_data.device->QueryInterface(d3d11.IInfoQueue_UUID, cast(^rawptr)&info)
+			assert(windows.SUCCEEDED(query_interface_result))
+
+			set_break_on_severity_corruption_result := info->SetBreakOnSeverity(.CORRUPTION, windows.TRUE)
+			assert(windows.SUCCEEDED(set_break_on_severity_corruption_result))
+
+			set_break_on_severity_error_result := info->SetBreakOnSeverity(.ERROR, windows.TRUE)
+			assert(windows.SUCCEEDED(set_break_on_severity_error_result))
+
+			info->Release()
+		}
+	}
+
+	// NOTE: mainloop
 	for {
-		for windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE) {
+		for msg: windows.MSG; windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE); {
 			if msg.message == windows.WM_QUIT {
 				return
 			}
