@@ -32,7 +32,7 @@ main :: proc() {
 	{
 		window_class := windows.WNDCLASSEXW {
 			cbSize        = size_of(windows.WNDCLASSEXW),
-			lpfnWndProc   = windows.DefWindowProcW,
+			lpfnWndProc   = window_proc,
 			hInstance     = windows.HANDLE(windows.GetModuleHandleW(nil)),
 			hIcon         = windows.LoadIconA(nil, windows.IDI_APPLICATION),
 			hCursor       = windows.LoadCursorA(nil, windows.IDC_ARROW),
@@ -69,14 +69,35 @@ main :: proc() {
 	// If the window was previously hidden, the return value is zero.
 	windows.ShowWindow(window.hwnd, windows.SW_SHOWDEFAULT)
 
+	msg: windows.MSG
 	for {
-		for msg: windows.MSG; windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE); {
-			switch (msg.message) {
-			case:
-				windows.TranslateMessage(&msg); windows.DispatchMessageW(&msg)
+		for windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE) {
+			if msg.message == windows.WM_QUIT {
+				return
 			}
+			windows.TranslateMessage(&msg)
+			windows.DispatchMessageW(&msg)
 		}
 	}
+}
+
+window_proc :: proc "system" (
+	hwnd: windows.HWND,
+	msg: windows.UINT,
+	wparam: windows.WPARAM,
+	lparam: windows.LPARAM,
+) -> (
+	result: windows.LRESULT = 0,
+) {
+
+	switch msg {
+	case windows.WM_DESTROY:
+		windows.PostQuitMessage(0)
+	case:
+		result = windows.DefWindowProcW(hwnd, msg, wparam, lparam)
+	}
+
+	return result
 }
 
 // https://devblogs.microsoft.com/oldnewthing/20100412-00/?p=14353

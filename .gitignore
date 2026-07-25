@@ -3,6 +3,7 @@
 ols.json
 odinfmt.json
 *.rdbg
+*.matilda
 
 # Binaries
 *.exe
