@@ -3,6 +3,7 @@ package main
 import "core:mem"
 import "core:sys/windows"
 import "vendor:directx/d3d11"
+import "vendor:directx/dxgi"
 
 Byte :: 1
 Kilobyte :: 1024 * Byte
@@ -73,12 +74,14 @@ main :: proc() {
 
 	// NOTE: Set up D3D11
 	d3d11_data: struct {
-		device:   ^d3d11.IDevice,
-		context_: ^d3d11.IDeviceContext,
+		device:    ^d3d11.IDevice,
+		context_:  ^d3d11.IDeviceContext,
+		swapchain: ^dxgi.ISwapChain1,
 	}
 
 	{
 
+		// NOTE: Device
 		levels: []d3d11.FEATURE_LEVEL = {._11_0}
 		create_device_result := d3d11.CreateDevice(
 			nil,
@@ -94,6 +97,7 @@ main :: proc() {
 		)
 		assert(windows.SUCCEEDED(create_device_result))
 
+		// NOTE: Debug break D3D11
 		{
 			info: ^d3d11.IInfoQueue
 
@@ -107,6 +111,55 @@ main :: proc() {
 			assert(windows.SUCCEEDED(set_break_on_severity_error_result))
 
 			info->Release()
+		}
+
+		// NOTE: Debug break DXGI
+		{
+			info: ^dxgi.IInfoQueue
+
+			get_debug_interface_result := dxgi.GetDebugInterface1(0, dxgi.IInfoQueue_UUID, cast(^rawptr)&info)
+			assert(windows.SUCCEEDED(get_debug_interface_result))
+
+			set_break_on_severity_corruption_result := info->SetBreakOnSeverity(
+				dxgi.DEBUG_ALL,
+				.CORRUPTION,
+				windows.TRUE,
+			)
+			assert(windows.SUCCEEDED(set_break_on_severity_corruption_result))
+
+			set_break_on_severity_error_result := info->SetBreakOnSeverity(dxgi.DEBUG_ALL, .ERROR, windows.TRUE)
+			assert(windows.SUCCEEDED(set_break_on_severity_error_result))
+
+			info->Release()
+		}
+
+		// NOTE: According to Martins:
+		// after this there's no need to check for any errors on device functions manually
+		// so all HRESULT return  values in this code will be ignored
+		// debugger will break on errors anyway
+
+		// NOTE: Swapchain
+		{
+			dxgi_device: ^dxgi.IDevice
+			query_interface_result := d3d11_data.device->QueryInterface(dxgi.IDevice_UUID, cast(^rawptr)&dxgi_device)
+			assert(windows.SUCCEEDED(query_interface_result))
+
+			dxgi_adapter: ^dxgi.IAdapter
+			get_adapter_result := dxgi_device->GetAdapter(&dxgi_adapter)
+			assert(windows.SUCCEEDED(get_adapter_result))
+
+			factory: ^dxgi.IFactory2
+			get_parent_result := dxgi_adapter->GetParent(dxgi.IFactory2_UUID, cast(^rawptr)&factory)
+			assert(windows.SUCCEEDED(get_parent_result))
+
+			desc: dxgi.SWAP_CHAIN_DESC1 = {
+				Format = .R8G8B8A8_UNORM,
+				SampleDesc = {Count = 1, Quality = 0},
+				BufferUsage = {.RENDER_TARGET_OUTPUT},
+				BufferCount = 2,
+				Scaling = .NONE,
+				SwapEffect = .FLIP_DISCARD,
+			}
 		}
 	}
 
