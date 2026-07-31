@@ -1,7 +1,6 @@
 package main
 
 import "core:mem"
-import "core:os"
 import "core:sys/windows"
 import "vendor:directx/d3d11"
 import "vendor:directx/d3d_compiler"
@@ -38,6 +37,7 @@ main :: proc() {
 	window: struct {
 		hwnd: windows.HWND,
 		prev: windows.WINDOWPLACEMENT,
+		dim:  [2]int,
 	} = {
 		prev = {length = size_of(windows.WINDOWPLACEMENT)},
 	}
@@ -84,20 +84,24 @@ main :: proc() {
 
 	// NOTE: Set up D3D11
 	d3d11_data: struct {
-		device:       ^d3d11.IDevice,
-		context_:     ^d3d11.IDeviceContext,
-		swapchain:    ^dxgi.ISwapChain1,
-		vbuffer:      ^d3d11.IBuffer,
-		layout:       ^d3d11.IInputLayout,
-		vshader:      ^d3d11.IVertexShader,
-		pshader:      ^d3d11.IPixelShader,
-		ubuffer:      ^d3d11.IBuffer,
-		texture_view: ^d3d11.IShaderResourceView,
-		sampler:      ^d3d11.ISamplerState,
+		device:           ^d3d11.IDevice,
+		context_:         ^d3d11.IDeviceContext,
+		swapchain:        ^dxgi.ISwapChain1,
+		vbuffer:          ^d3d11.IBuffer,
+		layout:           ^d3d11.IInputLayout,
+		vshader:          ^d3d11.IVertexShader,
+		pshader:          ^d3d11.IPixelShader,
+		ubuffer:          ^d3d11.IBuffer,
+		texture_view:     ^d3d11.IShaderResourceView,
+		sampler:          ^d3d11.ISamplerState,
+		blend_state:      ^d3d11.IBlendState,
+		rasterizer_state: ^d3d11.IRasterizerState,
+		depth_state:      ^d3d11.IDepthStencilState,
+		rt_view:          ^d3d11.IRenderTargetView,
+		ds_view:          ^d3d11.IDepthStencilView,
 	}
 
 	{
-
 		// NOTE: Device
 		levels: []d3d11.FEATURE_LEVEL = {._11_0}
 		create_device_result := d3d11.CreateDevice(
@@ -249,10 +253,31 @@ main :: proc() {
 			pblob: ^d3d_compiler.ID3DBlob
 			defer pblob->Release()
 
-			hlsl, err := os.read_entire_file("code/shader.hlsl", context.temp_allocator)
-			assert(err == nil)
-
+			hlsl: []u8
 			defer free_all(context.temp_allocator)
+			{
+				hfile := windows.CreateFileW(
+					cstring16("code/shader.hlsl"),
+					windows.GENERIC_READ,
+					windows.FILE_SHARE_READ,
+					nil,
+					windows.OPEN_EXISTING,
+					windows.FILE_ATTRIBUTE_NORMAL,
+					nil,
+				)
+				assert(hfile != windows.INVALID_HANDLE_VALUE)
+
+				size: windows.LARGE_INTEGER
+				GetFileSizeEx_result := windows.GetFileSizeEx(hfile, &size)
+				assert(bool(GetFileSizeEx_result))
+
+				hlsl = make([]u8, size, context.temp_allocator)
+
+				bytes_read: u32
+				ReadFile_result := windows.ReadFile(hfile, raw_data(hlsl), u32(len(hlsl)), &bytes_read, nil)
+				assert(bool(ReadFile_result))
+				assert(int(bytes_read) == len(hlsl))
+			}
 
 			vs_compile_result := d3d_compiler.Compile(
 				raw_data(hlsl),
@@ -372,6 +397,66 @@ main :: proc() {
 
 			d3d11_data.device->CreateSamplerState(&desc, &d3d11_data.sampler)
 		}
+
+		// NOTE: Blend
+		{
+			desc := d3d11.BLEND_DESC {
+				RenderTarget = {
+					0 = {
+						BlendEnable = windows.TRUE,
+						SrcBlend = .SRC_ALPHA,
+						DestBlend = .INV_SRC_ALPHA,
+						BlendOp = .ADD,
+						SrcBlendAlpha = .SRC_ALPHA,
+						DestBlendAlpha = .INV_SRC_ALPHA,
+						BlendOpAlpha = .ADD,
+						RenderTargetWriteMask = u8(d3d11.COLOR_WRITE_ENABLE_ALL),
+					},
+				},
+			}
+			d3d11_data.device->CreateBlendState(&desc, &d3d11_data.blend_state)
+		}
+
+		// NOTE: Rasteriser
+		{
+			desc := d3d11.RASTERIZER_DESC {
+				FillMode        = .SOLID,
+				CullMode        = .NONE,
+				DepthClipEnable = windows.TRUE,
+			}
+			d3d11_data.device->CreateRasterizerState(&desc, &d3d11_data.rasterizer_state)
+		}
+
+		// NOTE: Depth and stencil
+		{
+			desc := d3d11.DEPTH_STENCIL_DESC {
+				DepthEnable      = windows.FALSE,
+				DepthWriteMask   = .ALL,
+				DepthFunc        = .LESS,
+				StencilEnable    = windows.FALSE,
+				StencilReadMask  = d3d11.DEFAULT_STENCIL_READ_MASK,
+				StencilWriteMask = d3d11.DEFAULT_STENCIL_WRITE_MASK,
+			}
+			d3d11_data.device->CreateDepthStencilState(&desc, &d3d11_data.depth_state)
+		}
+	}
+
+	// NOTE: Timer
+	clock: struct {
+		freq:    windows.LARGE_INTEGER,
+		counter: windows.LARGE_INTEGER,
+	}
+
+	{
+		{
+			result := windows.QueryPerformanceFrequency(&clock.freq)
+			assert(bool(result))
+		}
+
+		{
+			result := windows.QueryPerformanceCounter(&clock.counter)
+			assert(bool(result))
+		}
 	}
 
 	// NOTE: mainloop
@@ -382,6 +467,93 @@ main :: proc() {
 			}
 			windows.TranslateMessage(&msg)
 			windows.DispatchMessageW(&msg)
+		}
+
+		// NOTE: Resize/init if necessary
+		{
+
+			// NOTE: New dim
+			rect: windows.RECT
+			{
+				result := windows.GetClientRect(window.hwnd, &rect)
+				assert(bool(result))
+			}
+			width := rect.right - rect.left
+			height := rect.bottom - rect.top
+
+			if (d3d11_data.rt_view == nil || int(width) != window.dim.x || int(height) != window.dim.y) {
+
+				// NOTE: Release all
+				if (d3d11_data.rt_view != nil) {
+					d3d11_data.context_->ClearState()
+					d3d11_data.rt_view->Release()
+					d3d11_data.ds_view->Release()
+					d3d11_data.rt_view = nil
+				}
+
+				if (width > 0 && height > 0) {
+
+					// NOTE: swapchain
+					{
+						result := d3d11_data.swapchain->ResizeBuffers(0, u32(width), u32(height), .UNKNOWN, {})
+						assert(windows.SUCCEEDED(result))
+					}
+
+					// NOTE: Render target view
+					{
+						backbuffer: ^d3d11.ITexture2D
+						defer backbuffer->Release()
+
+						d3d11_data.swapchain->GetBuffer(0, d3d11.ITexture2D_UUID, cast(^rawptr)&backbuffer)
+						d3d11_data.device->CreateRenderTargetView(
+							cast(^d3d11.IResource)backbuffer,
+							nil,
+							&d3d11_data.rt_view,
+						)
+					}
+
+					// NOTE: Depth stencil view
+					{
+						desc := d3d11.TEXTURE2D_DESC {
+							Width      = u32(width),
+							Height     = u32(height),
+							MipLevels  = 1,
+							ArraySize  = 1,
+							Format     = .D32_FLOAT,
+							SampleDesc = {1, 0},
+							Usage      = .DEFAULT,
+							BindFlags  = {.DEPTH_STENCIL},
+						}
+
+						depth: ^d3d11.ITexture2D
+						defer depth->Release()
+
+						d3d11_data.device->CreateTexture2D(&desc, nil, &depth)
+						d3d11_data.device->CreateDepthStencilView(depth, nil, &d3d11_data.ds_view)
+					}
+
+					window.dim = {int(width), int(height)}
+				}
+			}
+		}
+
+		if (d3d11_data.rt_view != nil) {
+
+			delta_time_ms: f32
+			{
+				new_counter: windows.LARGE_INTEGER
+				defer clock.counter = new_counter
+
+				{
+					result := windows.QueryPerformanceCounter(&new_counter)
+					assert(bool(result))
+				}
+
+				diff := new_counter - clock.counter
+				assert(diff > 0)
+
+				delta_time_ms = f32(f64(diff) / f64(clock.freq) * 1000)
+			}
 		}
 	}
 }
