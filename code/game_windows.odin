@@ -11,6 +11,12 @@ Kilobyte :: 1024 * Byte
 Megabyte :: 1024 * Kilobyte
 Gigabyte :: 1024 * Megabyte
 
+Vertex :: struct {
+	position: [2]f32,
+	uv:       [2]f32,
+	color:    [3]f32,
+}
+
 main :: proc() {
 	defer windows.ExitProcess(0)
 
@@ -203,12 +209,6 @@ main :: proc() {
 		}
 
 		// NOTE: Vertex buffer
-		Vertex :: struct {
-			position: [2]f32,
-			uv:       [2]f32,
-			color:    [3]f32,
-		}
-
 		{
 			data := [?]Vertex {
 				{{-0.00, +0.75}, {25.0, 50.0}, {1, 0, 0}},
@@ -459,6 +459,10 @@ main :: proc() {
 		}
 	}
 
+	// NOTE: Game
+	game_state := new(Game_State)
+	game_init(game_state)
+
 	// NOTE: mainloop
 	for {
 		for msg: windows.MSG; windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE); {
@@ -553,6 +557,97 @@ main :: proc() {
 				assert(diff > 0)
 
 				delta_time_ms = f32(f64(diff) / f64(clock.freq) * 1000)
+			}
+
+			// NOTE: Game
+			game_update_and_render(game_state, delta_time_ms)
+
+			// NOTE: Clear
+			{
+				color := [4]f32{0.392, 0.584, 0.929, 1}
+				d3d11_data.context_->ClearRenderTargetView(d3d11_data.rt_view, &color)
+				d3d11_data.context_->ClearDepthStencilView(d3d11_data.ds_view, {.DEPTH, .STENCIL}, 1, 0)
+			}
+
+			// NOTE: Uniform update
+			{
+				height_over_width := f32(window.dim.y) / f32(window.dim.x)
+				sin_angle := sin(game_state.angle_turns)
+				cos_angle := cos(game_state.angle_turns)
+							// odinfmt: disable
+				rot_matrix := matrix[4,4]f32{
+					cos_angle * height_over_width, -sin_angle, 0, 0,
+					sin_angle * height_over_width, cos_angle, 0, 0,
+					0, 0, 0, 0,
+					0, 0, 0, 1,
+				}
+				// odinfmt: enable
+
+				mapped: d3d11.MAPPED_SUBRESOURCE
+				d3d11_data.context_->Map(d3d11_data.ubuffer, 0, .WRITE_DISCARD, {}, &mapped)
+				mem.copy(mapped.pData, &rot_matrix, size_of(rot_matrix))
+				d3d11_data.context_->Unmap(d3d11_data.ubuffer, 0)
+			}
+
+			// NOTE: Input assembler
+			{
+				d3d11_data.context_->IASetInputLayout(d3d11_data.layout)
+				d3d11_data.context_->IASetPrimitiveTopology(.TRIANGLELIST)
+				stride := u32(size_of(Vertex))
+				offset: u32 = 0
+				d3d11_data.context_->IASetVertexBuffers(0, 1, &d3d11_data.vbuffer, &stride, &offset)
+			}
+
+			// NOTE: Vertex Shader
+			{
+				d3d11_data.context_->VSSetConstantBuffers(0, 1, &d3d11_data.ubuffer)
+				d3d11_data.context_->VSSetShader(d3d11_data.vshader, nil, 0)
+			}
+
+			// NOTE: Rasterizer stage
+			{
+				viewport := d3d11.VIEWPORT {
+					TopLeftX = 0,
+					TopLeftY = 0,
+					Width    = f32(window.dim.x),
+					Height   = f32(window.dim.y),
+					MinDepth = 0,
+					MaxDepth = 1,
+				}
+				d3d11_data.context_->RSSetViewports(1, &viewport)
+				d3d11_data.context_->RSSetState(d3d11_data.rasterizer_state)
+			}
+
+			// NOTE: Pixel shader
+			{
+				d3d11_data.context_->PSSetSamplers(0, 1, &d3d11_data.sampler)
+				d3d11_data.context_->PSSetShaderResources(0, 1, &d3d11_data.texture_view)
+				d3d11_data.context_->PSSetShader(d3d11_data.pshader, nil, 0)
+			}
+
+			// NOTE: Output merger
+			{
+				d3d11_data.context_->OMSetBlendState(d3d11_data.blend_state, nil, ~u32(0))
+				d3d11_data.context_->OMSetDepthStencilState(d3d11_data.depth_state, 0)
+				d3d11_data.context_->OMSetRenderTargets(1, &d3d11_data.rt_view, d3d11_data.ds_view)
+			}
+
+			// NOTE: Draw
+			{
+				d3d11_data.context_->Draw(3, 0)
+			}
+		}
+
+		// NOTE: Present
+		{
+			vsync := true
+			result := d3d11_data.swapchain->Present(vsync ? 1 : 0, {})
+			if (result == dxgi.STATUS_OCCLUDED) {
+				if (vsync) {
+					windows.Sleep(10)
+				}
+			} else if (windows.FAILED(result)) {
+				return
 			}
 		}
 	}
