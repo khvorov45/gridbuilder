@@ -5,6 +5,7 @@ odinfmt.json
 *.rdbg
 *.matilda
 MATILDA.md
+*.cap
 
 # Binaries
 *.exe
