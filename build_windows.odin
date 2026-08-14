@@ -1,6 +1,8 @@
 package build
 
+import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:sys/windows"
 import "vendor:directx/d3d_compiler"
 
@@ -28,6 +30,26 @@ main :: proc() {
 
 		pixel_shader := compile_shader(hlsl, "ps", "ps_5_0")
 		append_asset(pixel_shader)
+	}
+
+	// NOTE: generated code
+	{
+		code_builder := strings.builder_make()
+		wr := strings.to_writer(&code_builder)
+
+		fmt.wprintln(wr, "package main")
+		fmt.wprintln(wr, "")
+
+		// NOTE: Assets struct definition
+		fmt.wprintln(wr, "Assets :: struct {")
+		for entry in global_asset_list {
+			fmt.wprintfln(wr, "\t%s: []u8,", entry.name)
+		}
+		fmt.wprintln(wr, "}")
+
+		code_str := strings.to_string(code_builder)
+		write_entire_file_error := os.write_entire_file("code/generated_windows.odin", code_str)
+		assert(write_entire_file_error == nil)
 	}
 
 	// NOTE: main exe
