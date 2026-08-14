@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:mem"
 import "core:sys/windows"
 import "vendor:directx/d3d11"
@@ -19,6 +20,22 @@ Vertex :: struct {
 
 main :: proc() {
 	defer windows.ExitProcess(0)
+
+	// NOTE: temp
+	{
+		asset_data := #load("assets_windows.bin")
+
+		header := cast(^Assets_Header)(raw_data(asset_data))
+		{
+			base := uintptr(header)
+
+			{
+				offset := uintptr(size_of(Assets_Header))
+				actual_ptr := base + offset
+				fmt.println("%lld", actual_ptr)
+			}
+		}
+	}
 
 	// NOTE: Allocate
 	memory: struct {

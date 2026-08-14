@@ -1,5 +1,6 @@
 package build
 
+import "core:bufio"
 import "core:fmt"
 import "core:os"
 import "core:strings"
@@ -40,16 +41,53 @@ main :: proc() {
 		fmt.wprintln(wr, "package main")
 		fmt.wprintln(wr, "")
 
-		// NOTE: Assets struct definition
-		fmt.wprintln(wr, "Assets :: struct {")
+		// NOTE: Assets header struct definition
+		fmt.wprintln(wr, "Assets_Header :: struct {")
 		for entry in global_asset_list {
-			fmt.wprintfln(wr, "\t%s: []u8,", entry.name)
+			fmt.wprintln(wr, "\t", entry.name, "_len: uintptr,", sep = "")
 		}
 		fmt.wprintln(wr, "}")
 
 		code_str := strings.to_string(code_builder)
 		write_entire_file_error := os.write_entire_file("code/generated_windows.odin", code_str)
 		assert(write_entire_file_error == nil)
+	}
+
+	// NOTE: asset file
+	{
+		file, open_error := os.open("code/assets_windows.bin", {.Write, .Create})
+		assert(open_error == nil)
+		defer {
+			flush_error := os.flush(file)
+			assert(flush_error == nil)
+
+			close_error := os.close(file)
+			assert(close_error == nil)
+		}
+		file_writer := os.to_writer(file)
+
+		buffer := make([]u8, 1 * Gigabyte)
+		wr: bufio.Writer
+		bufio.writer_init_with_buf(&wr, file_writer, buffer)
+		defer {
+			flush_error := bufio.writer_flush(&wr)
+			assert(flush_error == nil)
+		}
+
+		write :: proc(wr: ^bufio.Writer, ptr: rawptr, len: int) {
+			bufio.writer_write(wr, (cast([^]u8)ptr)[:len])
+		}
+
+		// NOTE: header
+		for entry in global_asset_list {
+			length := len(entry.data)
+			write(&wr, &length, size_of(length))
+		}
+
+		// NOTE: data
+		for entry in global_asset_list {
+			bufio.writer_write(&wr, entry.data)
+		}
 	}
 
 	// NOTE: main exe
