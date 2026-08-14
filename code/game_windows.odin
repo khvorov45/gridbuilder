@@ -1,10 +1,8 @@
 package main
 
-import "core:fmt"
 import "core:mem"
 import "core:sys/windows"
 import "vendor:directx/d3d11"
-import "vendor:directx/d3d_compiler"
 import "vendor:directx/dxgi"
 
 Byte :: 1
@@ -20,22 +18,6 @@ Vertex :: struct {
 
 main :: proc() {
 	defer windows.ExitProcess(0)
-
-	// NOTE: temp
-	{
-		asset_data := #load("assets_windows.bin")
-
-		header := cast(^Assets_Header)(raw_data(asset_data))
-		{
-			base := uintptr(header)
-
-			{
-				offset := uintptr(size_of(Assets_Header))
-				actual_ptr := base + offset
-				fmt.println("%lld", actual_ptr)
-			}
-		}
-	}
 
 	// NOTE: Allocate
 	memory: struct {
@@ -254,97 +236,18 @@ main :: proc() {
 				{"COLOR", 0, .R32G32B32_FLOAT, 0, u32(offset_of(Vertex, color)), .VERTEX_DATA, 0},
 			}
 
-			flags := d3d_compiler.D3DCOMPILE {
-				.PACK_MATRIX_COLUMN_MAJOR,
-				.ENABLE_STRICTNESS,
-				.WARNINGS_ARE_ERRORS,
-				.DEBUG,
-				.SKIP_OPTIMIZATION,
-			}
-
-			error: ^d3d_compiler.ID3DBlob
-
-			vblob: ^d3d_compiler.ID3DBlob
-			defer vblob->Release()
-
-			pblob: ^d3d_compiler.ID3DBlob
-			defer pblob->Release()
-
-			hlsl: []u8
-			defer free_all(context.temp_allocator)
-			{
-				hfile := windows.CreateFileW(
-					cstring16("code/shader.hlsl"),
-					windows.GENERIC_READ,
-					windows.FILE_SHARE_READ,
-					nil,
-					windows.OPEN_EXISTING,
-					windows.FILE_ATTRIBUTE_NORMAL,
-					nil,
-				)
-				assert(hfile != windows.INVALID_HANDLE_VALUE)
-
-				size: windows.LARGE_INTEGER
-				GetFileSizeEx_result := windows.GetFileSizeEx(hfile, &size)
-				assert(bool(GetFileSizeEx_result))
-
-				hlsl = make([]u8, size, context.temp_allocator)
-
-				bytes_read: u32
-				ReadFile_result := windows.ReadFile(hfile, raw_data(hlsl), u32(len(hlsl)), &bytes_read, nil)
-				assert(bool(ReadFile_result))
-				assert(int(bytes_read) == len(hlsl))
-			}
-
-			vs_compile_result := d3d_compiler.Compile(
-				raw_data(hlsl),
-				len(hlsl),
-				nil,
-				nil,
-				nil,
-				"vs",
-				"vs_5_0",
-				transmute(u32)flags,
-				0,
-				&vblob,
-				&error,
-			)
-			if (windows.FAILED(vs_compile_result)) {
-				message := cstring(error->GetBufferPointer())
-				windows.OutputDebugStringA(message)
-			}
-			assert(windows.SUCCEEDED(vs_compile_result))
-
-
-			ps_compile_result := d3d_compiler.Compile(
-				raw_data(hlsl),
-				len(hlsl),
-				nil,
-				nil,
-				nil,
-				"ps",
-				"ps_5_0",
-				transmute(u32)flags,
-				0,
-				&pblob,
-				&error,
-			)
-			if (windows.FAILED(ps_compile_result)) {
-				message := cstring(error->GetBufferPointer())
-				windows.OutputDebugStringA(message)
-			}
-			assert(windows.SUCCEEDED(ps_compile_result))
-
+			vertex_shader_bytecode := #load("assets_windows/vertex_shader_bytecode.bin")
 			d3d11_data.device->CreateVertexShader(
-				vblob->GetBufferPointer(),
-				vblob->GetBufferSize(),
+				raw_data(vertex_shader_bytecode),
+				len(vertex_shader_bytecode),
 				nil,
 				&d3d11_data.vshader,
 			)
 
+			pixel_shader_bytecode := #load("assets_windows/pixel_shader_bytecode.bin")
 			d3d11_data.device->CreatePixelShader(
-				pblob->GetBufferPointer(),
-				pblob->GetBufferSize(),
+				raw_data(pixel_shader_bytecode),
+				len(pixel_shader_bytecode),
 				nil,
 				&d3d11_data.pshader,
 			)
@@ -352,8 +255,8 @@ main :: proc() {
 			d3d11_data.device->CreateInputLayout(
 				raw_data(&desc),
 				len(desc),
-				vblob->GetBufferPointer(),
-				vblob->GetBufferSize(),
+				raw_data(vertex_shader_bytecode),
+				len(vertex_shader_bytecode),
 				&d3d11_data.layout,
 			)
 		}

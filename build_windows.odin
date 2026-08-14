@@ -1,9 +1,6 @@
 package build
 
-import "core:bufio"
-import "core:fmt"
 import "core:os"
-import "core:strings"
 import "core:sys/windows"
 import "vendor:directx/d3d_compiler"
 
@@ -12,82 +9,25 @@ Kilobyte :: Byte * 1024
 Megabyte :: Kilobyte * 1024
 Gigabyte :: Megabyte * 1024
 
-Asset_List_Entry :: struct {
-	name: string,
-	data: []u8,
-}
-
-global_asset_list: [dynamic]Asset_List_Entry
-
 main :: proc() {
+	make_dir_err := os.make_directory("code/assets_windows")
+	assert(make_dir_err == nil || make_dir_err == .Exist)
 
 	// NOTE: shaders
 	{
 		hlsl, read_entire_file_error := os.read_entire_file("code/shader.hlsl", context.allocator)
 		assert(read_entire_file_error == nil)
 
-		vertex_shader := compile_shader(hlsl, "vs", "vs_5_0")
-		append_asset(vertex_shader)
+		vertex_shader_bytecode := compile_shader(hlsl, "vs", "vs_5_0")
+		write_file_err := os.write_entire_file(
+			"code/assets_windows/vertex_shader_bytecode.bin",
+			vertex_shader_bytecode,
+		)
+		assert(write_file_err == nil)
 
-		pixel_shader := compile_shader(hlsl, "ps", "ps_5_0")
-		append_asset(pixel_shader)
-	}
-
-	// NOTE: generated code
-	{
-		code_builder := strings.builder_make()
-		wr := strings.to_writer(&code_builder)
-
-		fmt.wprintln(wr, "package main")
-		fmt.wprintln(wr, "")
-
-		// NOTE: Assets header struct definition
-		fmt.wprintln(wr, "Assets_Header :: struct {")
-		for entry in global_asset_list {
-			fmt.wprintln(wr, "\t", entry.name, "_len: uintptr,", sep = "")
-		}
-		fmt.wprintln(wr, "}")
-
-		code_str := strings.to_string(code_builder)
-		write_entire_file_error := os.write_entire_file("code/generated_windows.odin", code_str)
-		assert(write_entire_file_error == nil)
-	}
-
-	// NOTE: asset file
-	{
-		file, open_error := os.open("code/assets_windows.bin", {.Write, .Create})
-		assert(open_error == nil)
-		defer {
-			flush_error := os.flush(file)
-			assert(flush_error == nil)
-
-			close_error := os.close(file)
-			assert(close_error == nil)
-		}
-		file_writer := os.to_writer(file)
-
-		buffer := make([]u8, 1 * Gigabyte)
-		wr: bufio.Writer
-		bufio.writer_init_with_buf(&wr, file_writer, buffer)
-		defer {
-			flush_error := bufio.writer_flush(&wr)
-			assert(flush_error == nil)
-		}
-
-		write :: proc(wr: ^bufio.Writer, ptr: rawptr, len: int) {
-			bufio.writer_write(wr, (cast([^]u8)ptr)[:len])
-		}
-
-		// NOTE: header
-		for entry in global_asset_list {
-			length := len(entry.data)
-			write(&wr, &length, size_of(length))
-		}
-
-		// NOTE: data
-		for entry in global_asset_list {
-			bufio.writer_write(&wr, entry.data)
-		}
+		pixel_shader_bytecode := compile_shader(hlsl, "ps", "ps_5_0")
+		write_file_err = os.write_entire_file("code/assets_windows/pixel_shader_bytecode.bin", pixel_shader_bytecode)
+		assert(write_file_err == nil)
 	}
 
 	// NOTE: main exe
@@ -157,8 +97,4 @@ compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u
 
 	bytecode := (cast([^]u8)ptr)[:size]
 	return bytecode
-}
-
-append_asset :: proc(data: []u8, expr := #caller_expression(data)) {
-	append(&global_asset_list, Asset_List_Entry{name = expr, data = data})
 }
