@@ -1,6 +1,7 @@
 package build
 
 import "core:os"
+import "core:strings"
 import "core:sys/windows"
 import "vendor:directx/d3d_compiler"
 
@@ -19,15 +20,10 @@ main :: proc() {
 		assert(read_entire_file_error == nil)
 
 		vertex_shader_bytecode := compile_shader(hlsl, "vs", "vs_5_0")
-		write_file_err := os.write_entire_file(
-			"code/assets_windows/vertex_shader_bytecode.bin",
-			vertex_shader_bytecode,
-		)
-		assert(write_file_err == nil)
+		write_asset_bin(vertex_shader_bytecode)
 
 		pixel_shader_bytecode := compile_shader(hlsl, "ps", "ps_5_0")
-		write_file_err = os.write_entire_file("code/assets_windows/pixel_shader_bytecode.bin", pixel_shader_bytecode)
-		assert(write_file_err == nil)
+		write_asset_bin(pixel_shader_bytecode)
 	}
 
 	// NOTE: main exe
@@ -97,4 +93,11 @@ compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u
 
 	bytecode := (cast([^]u8)ptr)[:size]
 	return bytecode
+}
+
+write_asset_bin :: proc(data: []u8, name := #caller_expression(data)) {
+	path, cat_err := strings.concatenate({"code/assets_windows/", name, ".bin"})
+	assert(cat_err == nil)
+	write_file_err := os.write_entire_file(path, data)
+	assert(write_file_err == nil)
 }
