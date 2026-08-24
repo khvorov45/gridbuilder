@@ -1,8 +1,10 @@
 package build
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:sys/windows"
+import "core:time"
 import "vendor:directx/d3d_compiler"
 
 Byte :: 1
@@ -11,6 +13,8 @@ Megabyte :: Kilobyte * 1024
 Gigabyte :: Megabyte * 1024
 
 main :: proc() {
+	start_time := time.tick_now()
+
 	create_empty_dir("build")
 	create_empty_dir("code/assets_windows")
 
@@ -55,6 +59,10 @@ main :: proc() {
 		assert(process_state.exited)
 		assert(process_state.exit_code == 0)
 	}
+
+	duration := time.tick_since(start_time)
+	duration_ms := time.duration_milliseconds(duration)
+	fmt.println("built in", duration_ms, "ms")
 }
 
 compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u8 {
