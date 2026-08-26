@@ -25,6 +25,7 @@ main :: proc() {
 	}
 	context.allocator = mem.arena_allocator(&game_state.memory.perm)
 	context.temp_allocator = mem.arena_allocator(&game_state.memory.frame)
+	context.logger = game_state.debug.logger
 
 	// NOTE: Create window
 	window: struct {
@@ -368,7 +369,10 @@ main :: proc() {
 	}
 
 	// NOTE: mainloop
+	free_all(context.temp_allocator)
 	for {
+		defer free_all(context.temp_allocator)
+
 		for msg: windows.MSG; windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE); {
 			if msg.message == windows.WM_QUIT {
 				return
