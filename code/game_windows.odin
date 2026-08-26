@@ -5,11 +5,6 @@ import "core:sys/windows"
 import "vendor:directx/d3d11"
 import "vendor:directx/dxgi"
 
-Byte :: 1
-Kilobyte :: 1024 * Byte
-Megabyte :: 1024 * Kilobyte
-Gigabyte :: 1024 * Megabyte
-
 Vertex :: struct {
 	position: [2]f32,
 	uv:       [2]f32,
@@ -19,24 +14,17 @@ Vertex :: struct {
 main :: proc() {
 	defer windows.ExitProcess(0)
 
-	// NOTE: Allocate
-	memory: struct {
-		perm, temp: mem.Arena,
-	}
+	// NOTE: Allocate + init
+	game_state: ^Game_State
 	{
 		size := 3 * Gigabyte
 		ptr := windows.VirtualAlloc(nil, uint(size), windows.MEM_COMMIT | windows.MEM_RESERVE, windows.PAGE_READWRITE)
 		assert(ptr != nil)
 		buf := (cast([^]u8)(ptr))[:size]
-
-		buf_perm := buf[:1 * Gigabyte]
-		buf_temp := buf[len(buf_perm):size]
-
-		mem.arena_init(&memory.perm, buf_perm)
-		mem.arena_init(&memory.temp, buf_temp)
+		game_state = game_init(buf)
 	}
-	context.allocator = mem.arena_allocator(&memory.perm)
-	context.temp_allocator = mem.arena_allocator(&memory.temp)
+	context.allocator = mem.arena_allocator(&game_state.memory.perm)
+	context.temp_allocator = mem.arena_allocator(&game_state.memory.frame)
 
 	// NOTE: Create window
 	window: struct {
@@ -379,10 +367,6 @@ main :: proc() {
 		}
 	}
 
-	// NOTE: Game
-	game_state := new(Game_State)
-	game_init(game_state)
-
 	// NOTE: mainloop
 	for {
 		for msg: windows.MSG; windows.PeekMessageW(&msg, nil, 0, 0, windows.PM_REMOVE); {
@@ -492,8 +476,8 @@ main :: proc() {
 			// NOTE: Uniform update
 			{
 				height_over_width := f32(window.dim.y) / f32(window.dim.x)
-				sin_angle := sin(game_state.angle_turns)
-				cos_angle := cos(game_state.angle_turns)
+				sin_angle := sin(0)
+				cos_angle := cos(0)
 							// odinfmt: disable
 				rot_matrix := matrix[4,4]f32{
 					cos_angle * height_over_width, -sin_angle, 0, 0,
