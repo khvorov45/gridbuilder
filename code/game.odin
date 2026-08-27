@@ -8,14 +8,31 @@ Kilobyte :: 1024 * Byte
 Megabyte :: 1024 * Kilobyte
 Gigabyte :: 1024 * Megabyte
 
-Circular_Buffer :: struct($T: typeid) {
-	entries: []T,
-	head:    int,
-}
-
 Log_Entry :: struct {
 	str: string,
 	buf: [Kilobyte]u8,
+}
+
+Log_Circle_Buf :: struct {
+	entries: [5]Log_Entry,
+	head:    int, // NOTE: Next entry will be written to this index
+}
+
+logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+	log_circle_buf := cast(^Log_Circle_Buf)(data)
+	assert(log_circle_buf.head >= 0 && log_circle_buf.head < len(log_circle_buf.entries))
+
+	entry := &log_circle_buf.entries[log_circle_buf.head]
+	bytes_to_copy := min(len(text), len(entry.buf))
+	mem.copy(&entry.buf, raw_data(text), bytes_to_copy)
+
+	entry.str = cast(string)entry.buf[:bytes_to_copy]
+
+	new_head := log_circle_buf.head + 1
+	if new_head >= len(log_circle_buf.entries) {
+		new_head = 0
+	}
+	log_circle_buf.head = new_head
 }
 
 Game_State :: struct {
@@ -24,18 +41,10 @@ Game_State :: struct {
 		frame: mem.Arena,
 	},
 	debug:  struct {
-		log_circle_buf: Circular_Buffer(Log_Entry),
+		log_circle_buf: Log_Circle_Buf,
 		logger:         log.Logger,
 	},
 }
-
-logger_proc :: proc(
-	data: rawptr,
-	level: log.Level,
-	text: string,
-	options: log.Options,
-	location := #caller_location,
-) {}
 
 game_init :: proc(buf: []u8) -> ^Game_State {
 	assert(len(buf) >= 3 * Gigabyte)
@@ -63,7 +72,6 @@ game_init :: proc(buf: []u8) -> ^Game_State {
 
 	// NOTE: Debug
 	{
-		game_state.debug.log_circle_buf.entries = make([]Log_Entry, 128)
 		game_state.debug.logger = log.Logger {
 			procedure    = logger_proc,
 			data         = &game_state.debug.log_circle_buf,
@@ -89,8 +97,5 @@ game_update_and_render :: proc(game_state: ^Game_State, delta_time_ms: f32) {
 	frame_temp_memory := mem.begin_arena_temp_memory(&game_state.memory.frame)
 	defer mem.end_arena_temp_memory(frame_temp_memory)
 
-	log.debug("test1")
-	log.debug("test2")
-	log.debug("test3")
-	log.debug("test4")
+	log.debug("update by", delta_time_ms, "ms")
 }
