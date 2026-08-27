@@ -30,6 +30,15 @@ main :: proc() {
 		write_asset_bin(pixel_shader_bytecode)
 	}
 
+	// NOTE: debug font
+	{
+		debug_font_tex: [128]u8
+		write_asset_bin(debug_font_tex[:])
+
+		debug_font_dim := [2]f32{1, 2}
+		write_asset_bin(debug_font_dim[:])
+	}
+
 	// NOTE: main exe
 	{
 		process, process_start_error := os.process_start(
@@ -103,11 +112,25 @@ compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u
 	return bytecode
 }
 
-write_asset_bin :: proc(data: []u8, name := #caller_expression(data)) {
+write_asset_bin :: proc {
+	write_asset_bin_u8_slice,
+	write_asset_bin_f32_slice,
+}
+
+write_asset_bin_u8_slice :: proc(data: []u8, name_og := #caller_expression(data)) {
+	name, was_allocation := strings.replace_all(name_og, "[:]", "")
+	_ = was_allocation
 	path, cat_err := strings.concatenate({"code/assets_windows/", name, ".bin"})
 	assert(cat_err == nil)
 	write_file_err := os.write_entire_file(path, data)
 	assert(write_file_err == nil)
+}
+
+write_asset_bin_f32_slice :: proc(data: []f32, name := #caller_expression(data)) {
+	u8_ptr := cast([^]u8)raw_data(data)
+	u8_len := len(data) * size_of(f32)
+	u8_slice := u8_ptr[:u8_len]
+	write_asset_bin_u8_slice(u8_slice, name)
 }
 
 create_empty_dir :: proc(path: string) {

@@ -8,6 +8,8 @@ Kilobyte :: 1024 * Byte
 Megabyte :: 1024 * Kilobyte
 Gigabyte :: 1024 * Megabyte
 
+ASCII_Char_Count :: 128
+
 Log_Entry :: struct {
 	str: string,
 	buf: [Kilobyte]u8,
@@ -35,6 +37,12 @@ logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.O
 	log_circle_buf.head = new_head
 }
 
+Rect_Screen_Textured :: struct {
+	rect_topleft:         [2]f32,
+	tex_topleft_in_atlas: [2]f32,
+	dim:                  [2]f32,
+}
+
 Game_State :: struct {
 	memory: struct {
 		perm:  mem.Arena,
@@ -43,6 +51,14 @@ Game_State :: struct {
 	debug:  struct {
 		log_circle_buf: Log_Circle_Buf,
 		logger:         log.Logger,
+		font:           struct {
+			glyph_dim:              [2]f32,
+			glyph_topleft_in_atlas: [ASCII_Char_Count][2]f32,
+		},
+	},
+	render: struct {
+		// NOTE: Assumed to be textured by one atlas and be drawn 1-to-1 in screen space
+		rects_screen_textured: [dynamic; 1024]Rect_Screen_Textured,
 	},
 }
 
@@ -98,4 +114,35 @@ game_update_and_render :: proc(game_state: ^Game_State, delta_time_ms: f32) {
 	defer mem.end_arena_temp_memory(frame_temp_memory)
 
 	log.debug("update by", delta_time_ms, "ms")
+
+	clear(&game_state.render.rects_screen_textured)
+	{
+		topleft := [2]f32{0, 0}
+		for log_entry in game_state.debug.log_circle_buf.entries {
+			if len(log_entry.str) > 0 {
+				render_string(game_state, log_entry.str, topleft)
+				topleft.y += game_state.debug.font.glyph_dim.y
+			}
+		}
+	}
+}
+
+render_string :: proc(game_state: ^Game_State, text: string, topleft_init: [2]f32) {
+	topleft := topleft_init
+	for ch in text {
+		glyph_topleft_in_atlas := game_state.debug.font.glyph_topleft_in_atlas[ch]
+		render_rect_screen_textured(game_state, topleft, glyph_topleft_in_atlas, game_state.debug.font.glyph_dim)
+		topleft += game_state.debug.font.glyph_dim.x
+	}
+}
+
+render_rect_screen_textured :: proc(
+	game_state: ^Game_State,
+	rect_topleft: [2]f32,
+	tex_topleft_in_atlas: [2]f32,
+	dim: [2]f32,
+) {
+	if (len(game_state.render.rects_screen_textured) < cap(game_state.render.rects_screen_textured)) {
+		append(&game_state.render.rects_screen_textured, Rect_Screen_Textured{rect_topleft, tex_topleft_in_atlas, dim})
+	}
 }
