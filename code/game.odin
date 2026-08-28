@@ -16,7 +16,7 @@ Log_Entry :: struct {
 }
 
 Log_Circle_Buf :: struct {
-	entries: [5]Log_Entry,
+	entries: [128]Log_Entry,
 	head:    int, // NOTE: Next entry will be written to this index
 }
 
@@ -39,9 +39,9 @@ logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.O
 
 // NOTE: Assumed to be textured by one atlas and be drawn 1-to-1
 Rect_Px_Space_Textured :: struct {
-	rect_topleft_px_space: [2]f32,
-	tex_topleft_in_atlas:  [2]f32,
-	dim:                   [2]f32,
+	topleft_px_space: [2]f32,
+	topleft_in_atlas: [2]f32,
+	dim:              [2]f32,
 }
 
 Game_State :: struct {
@@ -61,7 +61,7 @@ Game_State :: struct {
 		},
 	},
 	render: struct {
-		rects_px_space_textured: [dynamic; 1024]Rect_Px_Space_Textured,
+		rects_px_space_textured: [dynamic; 1024 * 1024]Rect_Px_Space_Textured,
 	},
 }
 
@@ -135,7 +135,7 @@ render_string :: proc(game_state: ^Game_State, text: string, topleft_init: [2]f3
 	for ch in text {
 		glyph_topleft_in_atlas := game_state.debug.font.glyph_topleft_in_atlas[ch]
 		render_rect_screen_textured(game_state, topleft, glyph_topleft_in_atlas, game_state.debug.font.glyph_dim)
-		topleft += game_state.debug.font.glyph_dim.x
+		topleft.x += game_state.debug.font.glyph_dim.x
 	}
 }
 

@@ -5,10 +5,17 @@ import "core:sys/windows"
 import "vendor:directx/d3d11"
 import "vendor:directx/dxgi"
 
-Vertex :: struct {
-	position: [2]f32,
-	uv:       [2]f32,
-	color:    [3]f32,
+Vertex_Screen_Space_Textured :: struct {
+	pos:   [2]f32,
+	uv:    [2]f32,
+	color: [3]f32,
+}
+
+load_v2 :: proc($path: string, $T: typeid) -> [2]T {
+	slice := #load(path, []T)
+	assert(len(slice) == 2)
+	result := [2]T{slice[0], slice[1]}
+	return result
 }
 
 main :: proc() {
@@ -26,6 +33,24 @@ main :: proc() {
 	context.allocator = mem.arena_allocator(&game_state.memory.perm)
 	context.temp_allocator = mem.arena_allocator(&game_state.memory.frame)
 	context.logger = game_state.debug.logger
+
+	// NOTE: Texture atlas
+	tex_atlas: struct {
+		pixels: []u32,
+		dim:    [2]u32,
+	} = {
+		pixels = #load("assets_windows/tex_atlas_pixels.bin", []u32),
+		dim    = load_v2("assets_windows/tex_atlas_dim.bin", u32),
+	}
+
+	// NOTE: Debug font
+	{
+		glyph_topleft_in_atlas := #load("assets_windows/debug_font_glyph_topleft_in_atlas.bin", [][2]f32)
+		assert(len(glyph_topleft_in_atlas) == ASCII_Char_Count)
+		copy(game_state.debug.font.glyph_topleft_in_atlas[:], glyph_topleft_in_atlas)
+
+		game_state.debug.font.glyph_dim = load_v2("assets_windows/debug_font_glyph_dim.bin", f32)
+	}
 
 	// NOTE: Create window
 	window: struct {
@@ -78,21 +103,21 @@ main :: proc() {
 
 	// NOTE: Set up D3D11
 	d3d11_data: struct {
-		device:           ^d3d11.IDevice,
-		context_:         ^d3d11.IDeviceContext,
-		swapchain:        ^dxgi.ISwapChain1,
-		vbuffer:          ^d3d11.IBuffer,
-		layout:           ^d3d11.IInputLayout,
-		vshader:          ^d3d11.IVertexShader,
-		pshader:          ^d3d11.IPixelShader,
-		ubuffer:          ^d3d11.IBuffer,
-		texture_view:     ^d3d11.IShaderResourceView,
-		sampler:          ^d3d11.ISamplerState,
-		blend_state:      ^d3d11.IBlendState,
-		rasterizer_state: ^d3d11.IRasterizerState,
-		depth_state:      ^d3d11.IDepthStencilState,
-		rt_view:          ^d3d11.IRenderTargetView,
-		ds_view:          ^d3d11.IDepthStencilView,
+		device:                    ^d3d11.IDevice,
+		context_:                  ^d3d11.IDeviceContext,
+		swapchain:                 ^dxgi.ISwapChain1,
+		vbuffer_px_space_textured: ^d3d11.IBuffer,
+		layout:                    ^d3d11.IInputLayout,
+		vshader:                   ^d3d11.IVertexShader,
+		pshader:                   ^d3d11.IPixelShader,
+		ubuffer:                   ^d3d11.IBuffer,
+		texture_view:              ^d3d11.IShaderResourceView,
+		sampler:                   ^d3d11.ISamplerState,
+		blend_state:               ^d3d11.IBlendState,
+		rasterizer_state:          ^d3d11.IRasterizerState,
+		depth_state:               ^d3d11.IDepthStencilState,
+		rt_view:                   ^d3d11.IRenderTargetView,
+		ds_view:                   ^d3d11.IDepthStencilView,
 	}
 
 	{
@@ -196,33 +221,29 @@ main :: proc() {
 			assert(windows.SUCCEEDED(MakeWindowAssociation_result))
 		}
 
-		// NOTE: Vertex buffer
+		// NOTE: Vertex buffer for pixel-space textured vertices
 		{
-			data := [?]Vertex {
-				{{-0.00, +0.75}, {25.0, 50.0}, {1, 0, 0}},
-				{{+0.75, -0.50}, {0.0, 0.0}, {0, 1, 0}},
-				{{-0.75, -0.50}, {50.0, 0.0}, {0, 0, 1}},
-			}
+			max_px_space_quads := cap(game_state.render.rects_px_space_textured)
+			required_triangles := max_px_space_quads * 2
+			requred_vertices := required_triangles * 3
 
 			desc := d3d11.BUFFER_DESC {
-				ByteWidth = size_of(data),
-				Usage     = .IMMUTABLE,
-				BindFlags = {.VERTEX_BUFFER},
+				ByteWidth      = u32(requred_vertices * size_of(Vertex_Screen_Space_Textured)),
+				Usage          = .DYNAMIC,
+				BindFlags      = {.VERTEX_BUFFER},
+				CPUAccessFlags = {.WRITE},
 			}
 
-			initial := d3d11.SUBRESOURCE_DATA {
-				pSysMem = &data,
-			}
-
-			d3d11_data.device->CreateBuffer(&desc, &initial, &d3d11_data.vbuffer)
+			d3d11_data.device->CreateBuffer(&desc, nil, &d3d11_data.vbuffer_px_space_textured)
 		}
 
 		// NOTE: Shaders + layout
 		{
+			VTX :: Vertex_Screen_Space_Textured
 			desc := [?]d3d11.INPUT_ELEMENT_DESC {
-				{"POSITION", 0, .R32G32_FLOAT, 0, u32(offset_of(Vertex, position)), .VERTEX_DATA, 0},
-				{"TEXCOORD", 0, .R32G32_FLOAT, 0, u32(offset_of(Vertex, uv)), .VERTEX_DATA, 0},
-				{"COLOR", 0, .R32G32B32_FLOAT, 0, u32(offset_of(Vertex, color)), .VERTEX_DATA, 0},
+				{"POSITION", 0, .R32G32_FLOAT, 0, u32(offset_of(VTX, pos)), .VERTEX_DATA, 0},
+				{"TEXCOORD", 0, .R32G32_FLOAT, 0, u32(offset_of(VTX, uv)), .VERTEX_DATA, 0},
+				{"COLOR", 0, .R32G32B32_FLOAT, 0, u32(offset_of(VTX, color)), .VERTEX_DATA, 0},
 			}
 
 			vertex_shader_bytecode := #load("assets_windows/vertex_shader_bytecode.bin")
@@ -262,15 +283,11 @@ main :: proc() {
 			d3d11_data.device->CreateBuffer(&desc, nil, &d3d11_data.ubuffer)
 		}
 
-		// NOTE: Texture
+		// NOTE: Texture atlas (only one)
 		{
-			pixels := [?]u32{0x80000000, 0xffffffff, 0xffffffff, 0x80000000}
-			width := 2
-			height := 2
-
 			desc := d3d11.TEXTURE2D_DESC {
-				Width      = u32(width),
-				Height     = u32(height),
+				Width      = tex_atlas.dim.x,
+				Height     = tex_atlas.dim.y,
 				MipLevels  = 1,
 				ArraySize  = 1,
 				Format     = .R8G8B8A8_UNORM,
@@ -280,8 +297,8 @@ main :: proc() {
 			}
 
 			data := d3d11.SUBRESOURCE_DATA {
-				pSysMem     = &pixels,
-				SysMemPitch = u32(width) * size_of(u32),
+				pSysMem     = &tex_atlas.pixels[0],
+				SysMemPitch = u32(tex_atlas.dim.x) * size_of(tex_atlas.pixels[0]),
 			}
 
 			texture: ^d3d11.ITexture2D
@@ -348,23 +365,6 @@ main :: proc() {
 			}
 			d3d11_data.device->CreateDepthStencilState(&desc, &d3d11_data.depth_state)
 		}
-	}
-
-	// NOTE: Debug font
-	debug_font: struct {
-		tex: []u8,
-	}
-
-	{
-		debug_font.tex = #load("assets_windows/debug_font_tex.bin")
-
-		font_dim_slice := #load("assets_windows/debug_font_glyph_dim.bin", []f32)
-		assert(len(font_dim_slice) == 2)
-		game_state.debug.font.glyph_dim = {font_dim_slice[0], font_dim_slice[1]}
-
-		topleft_coords_slice := #load("assets_windows/debug_font_glyph_topleft_coords.bin", [][2]f32)
-		assert(len(topleft_coords_slice) == ASCII_Char_Count)
-		copy(game_state.debug.font.glyph_topleft_in_atlas[:], topleft_coords_slice)
 	}
 
 	// NOTE: Timer
@@ -518,9 +518,9 @@ main :: proc() {
 			{
 				d3d11_data.context_->IASetInputLayout(d3d11_data.layout)
 				d3d11_data.context_->IASetPrimitiveTopology(.TRIANGLELIST)
-				stride := u32(size_of(Vertex))
+				stride := u32(size_of(Vertex_Screen_Space_Textured))
 				offset: u32 = 0
-				d3d11_data.context_->IASetVertexBuffers(0, 1, &d3d11_data.vbuffer, &stride, &offset)
+				d3d11_data.context_->IASetVertexBuffers(0, 1, &d3d11_data.vbuffer_px_space_textured, &stride, &offset)
 			}
 
 			// NOTE: Vertex Shader
@@ -559,7 +559,68 @@ main :: proc() {
 
 			// NOTE: Draw
 			{
-				d3d11_data.context_->Draw(3, 0)
+				desc: d3d11.BUFFER_DESC
+				d3d11_data.vbuffer_px_space_textured->GetDesc(&desc)
+				vertex_count := desc.ByteWidth / size_of(Vertex_Screen_Space_Textured)
+
+				mapped: d3d11.MAPPED_SUBRESOURCE
+				d3d11_data.context_->Map(d3d11_data.vbuffer_px_space_textured, 0, .WRITE_DISCARD, {}, &mapped)
+				gpu_vertices_raw := mem.Raw_Dynamic_Array {
+					data      = mapped.pData,
+					len       = 0,
+					cap       = int(vertex_count),
+					allocator = mem.nil_allocator(),
+				}
+				gpu_vertices := transmute([dynamic]Vertex_Screen_Space_Textured)gpu_vertices_raw
+
+				for rect in game_state.render.rects_px_space_textured {
+					screen_dim := cast([2]f32)window.dim
+					topleft_screen_space := rect.topleft_px_space / screen_dim * 2 - 1
+					topleft_screen_space.y *= -1
+					dim_screen_space := rect.dim / screen_dim * 2
+					dim_screen_space.y *= -1
+
+					tex_dim := cast([2]f32)tex_atlas.dim
+					topleft_uv := rect.topleft_in_atlas / tex_dim
+					dim_uv := rect.dim / tex_dim
+
+					topleft_vertex := Vertex_Screen_Space_Textured {
+						pos   = topleft_screen_space,
+						uv    = topleft_uv,
+						color = [3]f32{1, 1, 1},
+					}
+
+					topright_vertex := Vertex_Screen_Space_Textured {
+						pos   = topleft_screen_space + [2]f32{dim_screen_space.x, 0},
+						uv    = topleft_uv + [2]f32{dim_uv.x, 0},
+						color = [3]f32{1, 1, 1},
+					}
+
+					bottomleft_vertex := Vertex_Screen_Space_Textured {
+						pos   = topleft_screen_space + [2]f32{0, dim_screen_space.y},
+						uv    = topleft_uv + [2]f32{0, dim_uv.y},
+						color = [3]f32{1, 1, 1},
+					}
+
+					bottomright_vertex := Vertex_Screen_Space_Textured {
+						pos   = topleft_screen_space + dim_screen_space,
+						uv    = topleft_uv + dim_uv,
+						color = [3]f32{1, 1, 1},
+					}
+
+					// NOTE: Triangle 1
+					append(&gpu_vertices, topleft_vertex)
+					append(&gpu_vertices, topright_vertex)
+					append(&gpu_vertices, bottomleft_vertex)
+
+					// NOTE: Triangle 2
+					append(&gpu_vertices, topright_vertex)
+					append(&gpu_vertices, bottomright_vertex)
+					append(&gpu_vertices, bottomleft_vertex)
+				}
+
+				d3d11_data.context_->Unmap(d3d11_data.vbuffer_px_space_textured, 0)
+				d3d11_data.context_->Draw(u32(len(gpu_vertices)), 0)
 			}
 		}
 

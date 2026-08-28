@@ -20,7 +20,7 @@ Texture2D<float4> texture0 : register(t0); // t0 = shader resource bound to slot
 
 PS_INPUT vs(VS_INPUT input) {
     PS_INPUT output;
-    output.pos = mul(uTransform, float4(input.pos, 0, 1));
+    output.pos = float4(input.pos, 0, 1);
     output.uv = input.uv;
     output.color = float4(input.color, 1);
     return output;

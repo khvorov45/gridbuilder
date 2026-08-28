@@ -12,6 +12,11 @@ Kilobyte :: Byte * 1024
 Megabyte :: Kilobyte * 1024
 Gigabyte :: Megabyte * 1024
 
+Texture :: struct {
+	pixels: []u32,
+	dim:    [2]u32,
+}
+
 main :: proc() {
 	start_time := time.tick_now()
 
@@ -20,21 +25,26 @@ main :: proc() {
 
 	// NOTE: shaders
 	{
+		hlsl_file_path: cstring = "code/shader.hlsl"
 		hlsl, read_entire_file_error := os.read_entire_file("code/shader.hlsl", context.allocator)
 		assert(read_entire_file_error == nil)
 
-		vertex_shader_bytecode := compile_shader(hlsl, "vs", "vs_5_0")
+		vertex_shader_bytecode := compile_shader(hlsl, hlsl_file_path, "vs", "vs_5_0")
 		write_asset_bin(vertex_shader_bytecode)
 
-		pixel_shader_bytecode := compile_shader(hlsl, "ps", "ps_5_0")
+		pixel_shader_bytecode := compile_shader(hlsl, hlsl_file_path, "ps", "ps_5_0")
 		write_asset_bin(pixel_shader_bytecode)
 	}
 
-	// NOTE: debug font
+	// NOTE: debug font, the font we'll use has all ASCII chars that have the same dimensions 8x16
+	debug_font_tex: Texture
+	debug_font_glyph_count := 128
+	debug_font_glyph_dim_int := [2]int{8, 16}
 	{
 		// Taken from https://github.com/nakst/luigi/blob/main/luigi.h
 		// Taken from https://commons.wikimedia.org/wiki/File:Codepage-437.png
 		// Public domain
+		// Each glyph is 16 consecutive bytes where each byte is a row
 			// odinfmt: disable
 		debug_font_bitmap := [?]u64{
                 0x0000000000000000, 0x0000000000000000, 0xBD8181A5817E0000, 0x000000007E818199, 0xC3FFFFDBFF7E0000, 0x000000007EFFFFE7, 0x7F7F7F3600000000, 0x00000000081C3E7F,
@@ -72,24 +82,20 @@ main :: proc() {
             }
 		// odinfmt: enable
 
-		glyph_count := 128 // NOTE: All ASCII
-
-		glyph_dim := [2]int{8, 16} // NOTE: That's just the property of the font above
-		debug_font_glyph_dim := ([2]f32)(glyph_dim)
+		debug_font_glyph_dim := ([2]f32)(debug_font_glyph_dim_int)
 		write_asset_bin(debug_font_glyph_dim[:])
 
 		// NOTE: Arrange in one row with no gaps
-		tex_dim := glyph_dim * [2]int{glyph_count, 1}
-		debug_font_tex := make([]u32, tex_dim.x * tex_dim.y)
-		for tex_row := 0; tex_row < tex_dim.y; tex_row += 1 {
-			for tex_col := 0; tex_col < tex_dim.x; tex_col += 1 {
-				texel := &debug_font_tex[tex_row * tex_dim.x + tex_col]
+		debug_font_tex.dim = ([2]u32)(debug_font_glyph_dim_int) * [2]u32{u32(debug_font_glyph_count), 1}
+		debug_font_tex.pixels = make([]u32, debug_font_tex.dim.x * debug_font_tex.dim.y)
+		for tex_row := 0; tex_row < int(debug_font_tex.dim.y); tex_row += 1 {
+			for tex_col := 0; tex_col < int(debug_font_tex.dim.x); tex_col += 1 {
+				texel := &debug_font_tex.pixels[tex_row * int(debug_font_tex.dim.x) + tex_col]
 
-				glyph_index := tex_col / glyph_dim.x // NOTE: floor
-				glyph_col := tex_col % glyph_dim.x
+				glyph_index := tex_col / debug_font_glyph_dim_int.x // NOTE: floor
+				glyph_col := tex_col % debug_font_glyph_dim_int.x
 
-				// NOTE: Each glyph is 16 consecutive bytes where each byte is a row
-				glyph_in_bitmap := (cast([^]u8)(&debug_font_bitmap[glyph_index * 2]))[:glyph_dim.y]
+				glyph_in_bitmap := (cast([^]u8)(&debug_font_bitmap[glyph_index * 2]))[:debug_font_glyph_dim_int.y]
 				bitmap_row := glyph_in_bitmap[tex_row]
 				col_mask := u8(0b00000001) << u8(glyph_col)
 				this_bit_is_on := bitmap_row & col_mask
@@ -98,15 +104,22 @@ main :: proc() {
 				texel^ = tex_val
 			}
 		}
-		write_asset_bin(debug_font_tex[:])
+	}
 
-		debug_font_glyph_topleft_coords := make([][2]f32, glyph_count)
-		for glyph_index := 0; glyph_index < glyph_count; glyph_index += 1 {
-			coords := &debug_font_glyph_topleft_coords[glyph_index]
-			coords_val := [2]f32{f32(glyph_index) * f32(glyph_dim.x), 0}
-			coords^ = coords_val
+	// NOTE: Texture atlas
+	{
+		tex_atlas_pixels := debug_font_tex.pixels
+		tex_atlas_dim := debug_font_tex.dim
+
+		write_asset_bin(tex_atlas_pixels)
+		write_asset_bin(tex_atlas_dim[:])
+
+		debug_font_tex_offset_in_atlas := [2]f32{0, 0}
+		debug_font_glyph_topleft_in_atlas := make([][2]f32, debug_font_glyph_count)
+		for &coords, glyph_index in debug_font_glyph_topleft_in_atlas {
+			coords = debug_font_tex_offset_in_atlas + [2]f32{f32(glyph_index) * f32(debug_font_glyph_dim_int.x), 0}
 		}
-		write_asset_bin(debug_font_glyph_topleft_coords)
+		write_asset_bin(debug_font_glyph_topleft_in_atlas)
 	}
 
 	// NOTE: main exe
@@ -144,7 +157,7 @@ main :: proc() {
 	fmt.println("built in", duration_ms, "ms")
 }
 
-compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u8 {
+compile_shader :: proc(hlsl: []u8, hlsl_file_path, entry_point: cstring, target: cstring) -> []u8 {
 	flags := d3d_compiler.D3DCOMPILE {
 		.PACK_MATRIX_COLUMN_MAJOR,
 		.ENABLE_STRICTNESS,
@@ -158,7 +171,7 @@ compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u
 	compile_result := d3d_compiler.Compile(
 		raw_data(hlsl),
 		len(hlsl),
-		nil,
+		hlsl_file_path,
 		nil,
 		nil,
 		entry_point,
@@ -170,8 +183,8 @@ compile_shader :: proc(hlsl: []u8, entry_point: cstring, target: cstring) -> []u
 	)
 
 	if (windows.FAILED(compile_result)) {
-		message := cstring(error->GetBufferPointer())
-		windows.OutputDebugStringA(message)
+		message_og := cstring(error->GetBufferPointer())
+		fmt.println(message_og)
 	}
 	assert(windows.SUCCEEDED(compile_result))
 
