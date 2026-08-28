@@ -227,10 +227,10 @@ main :: proc() {
 		{
 			max_px_space_quads := cap(game_state.render.rects_px_space_textured)
 			required_triangles := max_px_space_quads * 2
-			requred_vertices := required_triangles * 3
+			required_vertices := required_triangles * 3
 
 			desc := d3d11.BUFFER_DESC {
-				ByteWidth      = u32(requred_vertices * size_of(Vertex_Screen_Space_Textured)),
+				ByteWidth      = u32(required_vertices * size_of(Vertex_Screen_Space_Textured)),
 				Usage          = .DYNAMIC,
 				BindFlags      = {.VERTEX_BUFFER},
 				CPUAccessFlags = {.WRITE},
@@ -420,6 +420,7 @@ main :: proc() {
 					d3d11_data.rt_view->Release()
 					d3d11_data.ds_view->Release()
 					d3d11_data.rt_view = nil
+					d3d11_data.ds_view = nil
 				}
 
 				if (width > 0 && height > 0) {

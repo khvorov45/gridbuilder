@@ -210,19 +210,10 @@ write_asset_bin :: proc(data: []$T, name_og := #caller_expression(data)) {
 create_empty_dir :: proc(path: string) {
 	if os.exists(path) {
 		assert(os.is_dir(path))
-
-		handle, open_err := os.open(path)
-		assert(open_err == nil)
-
-		it := os.read_directory_iterator_create(handle)
-		defer os.read_directory_iterator_destroy(&it)
-
-		for info in os.read_directory_iterator(&it) {
-			remove_err := os.remove(info.fullpath)
-			assert(remove_err == nil)
-		}
-	} else {
-		make_err := os.make_directory(path)
-		assert(make_err == nil)
+		remove_err := os.remove_all(path)
+		assert(remove_err == nil)
 	}
+
+	make_err := os.make_directory(path)
+	assert(make_err == nil)
 }

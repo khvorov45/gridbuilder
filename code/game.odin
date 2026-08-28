@@ -62,7 +62,7 @@ Game_State :: struct {
 		},
 	},
 	render: struct {
-		rects_px_space_textured: [dynamic; 1024 * 1024]Rect_Px_Space_Textured,
+		rects_px_space_textured: [dynamic; 16 * 1024]Rect_Px_Space_Textured,
 	},
 }
 
@@ -114,9 +114,6 @@ game_init :: proc(buf: []u8) -> ^Game_State {
 }
 
 game_update_and_render :: proc(game_state: ^Game_State, delta_time_ms: f32) {
-	frame_temp_memory := mem.begin_arena_temp_memory(&game_state.memory.frame)
-	defer mem.end_arena_temp_memory(frame_temp_memory)
-
 	log.debug("update by", delta_time_ms, "ms")
 
 	clear(&game_state.render.rects_px_space_textured)
@@ -134,6 +131,7 @@ game_update_and_render :: proc(game_state: ^Game_State, delta_time_ms: f32) {
 render_string :: proc(game_state: ^Game_State, text: string, topleft_init: [2]f32) {
 	topleft := topleft_init
 	for ch in text {
+		assert(ch >= 0 && ch < ASCII_Char_Count)
 		glyph_topleft_in_atlas := game_state.debug.font.glyph_topleft_in_atlas[ch]
 		render_rect_px_space_textured(game_state, topleft, glyph_topleft_in_atlas, game_state.debug.font.glyph_dim)
 		topleft.x += game_state.debug.font.glyph_dim.x
@@ -146,10 +144,9 @@ render_rect_px_space_textured :: proc(
 	tex_topleft_in_atlas: [2]f32,
 	dim: [2]f32,
 ) {
-	if (len(game_state.render.rects_px_space_textured) < cap(game_state.render.rects_px_space_textured)) {
-		append(
-			&game_state.render.rects_px_space_textured,
-			Rect_Px_Space_Textured{rect_topleft_px_space, tex_topleft_in_atlas, dim},
-		)
-	}
+	assert(len(game_state.render.rects_px_space_textured) < cap(game_state.render.rects_px_space_textured))
+	append(
+		&game_state.render.rects_px_space_textured,
+		Rect_Px_Space_Textured{rect_topleft_px_space, tex_topleft_in_atlas, dim},
+	)
 }
