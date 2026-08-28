@@ -45,9 +45,11 @@ main :: proc() {
 
 	// NOTE: Debug font
 	{
-		glyph_topleft_in_atlas := #load("assets_windows/debug_font_glyph_topleft_in_atlas.bin", [][2]f32)
-		assert(len(glyph_topleft_in_atlas) == ASCII_Char_Count)
-		copy(game_state.debug.font.glyph_topleft_in_atlas[:], glyph_topleft_in_atlas)
+		game_state.debug.font.glyph_topleft_in_atlas = #load(
+			"assets_windows/debug_font_glyph_topleft_in_atlas.bin",
+			[][2]f32,
+		)
+		assert(len(game_state.debug.font.glyph_topleft_in_atlas) == ASCII_Char_Count)
 
 		game_state.debug.font.glyph_dim = load_v2("assets_windows/debug_font_glyph_dim.bin", f32)
 	}
