@@ -73,8 +73,13 @@ main :: proc() {
 		// odinfmt: enable
 
 		glyph_count := 128 // NOTE: All ASCII
+
 		glyph_dim := [2]int{8, 16} // NOTE: That's just the property of the font above
-		tex_dim := glyph_dim * [2]int{glyph_count, 1} // NOTE: Arrange in one row
+		debug_font_glyph_dim := ([2]f32)(glyph_dim)
+		write_asset_bin(debug_font_glyph_dim[:])
+
+		// NOTE: Arrange in one row with no gaps
+		tex_dim := glyph_dim * [2]int{glyph_count, 1}
 		debug_font_tex := make([]u32, tex_dim.x * tex_dim.y)
 		for tex_row := 0; tex_row < tex_dim.y; tex_row += 1 {
 			for tex_col := 0; tex_col < tex_dim.x; tex_col += 1 {
@@ -95,8 +100,13 @@ main :: proc() {
 		}
 		write_asset_bin(debug_font_tex[:])
 
-		debug_font_glyph_dim := ([2]f32)(glyph_dim)
-		write_asset_bin(debug_font_glyph_dim[:])
+		debug_font_glyph_topleft_coords := make([][2]f32, glyph_count)
+		for glyph_index := 0; glyph_index < glyph_count; glyph_index += 1 {
+			coords := &debug_font_glyph_topleft_coords[glyph_index]
+			coords_val := [2]f32{f32(glyph_index) * f32(glyph_dim.x), 0}
+			coords^ = coords_val
+		}
+		write_asset_bin(debug_font_glyph_topleft_coords)
 	}
 
 	// NOTE: main exe

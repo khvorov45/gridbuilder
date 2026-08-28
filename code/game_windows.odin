@@ -357,10 +357,14 @@ main :: proc() {
 
 	{
 		debug_font.tex = #load("assets_windows/debug_font_tex.bin")
-		dim_slice := #load("assets_windows/debug_font_glyph_dim.bin", []f32)
-		assert(len(dim_slice) == 2)
 
-		game_state.debug.font.glyph_dim = {dim_slice[0], dim_slice[1]}
+		font_dim_slice := #load("assets_windows/debug_font_glyph_dim.bin", []f32)
+		assert(len(font_dim_slice) == 2)
+		game_state.debug.font.glyph_dim = {font_dim_slice[0], font_dim_slice[1]}
+
+		topleft_coords_slice := #load("assets_windows/debug_font_glyph_topleft_coords.bin", [][2]f32)
+		assert(len(topleft_coords_slice) == ASCII_Char_Count)
+		copy(game_state.debug.font.glyph_topleft_in_atlas[:], topleft_coords_slice)
 	}
 
 	// NOTE: Timer
