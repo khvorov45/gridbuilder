@@ -37,10 +37,11 @@ logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.O
 	log_circle_buf.head = new_head
 }
 
-Rect_Screen_Textured :: struct {
-	rect_topleft:         [2]f32,
-	tex_topleft_in_atlas: [2]f32,
-	dim:                  [2]f32,
+// NOTE: Assumed to be textured by one atlas and be drawn 1-to-1
+Rect_Px_Space_Textured :: struct {
+	rect_topleft_px_space: [2]f32,
+	tex_topleft_in_atlas:  [2]f32,
+	dim:                   [2]f32,
 }
 
 Game_State :: struct {
@@ -51,14 +52,16 @@ Game_State :: struct {
 	debug:  struct {
 		log_circle_buf: Log_Circle_Buf,
 		logger:         log.Logger,
+		// NOTE: Assume monospace font that has a glyph for all ASCII characters
+		// Assume all glyphs are packed in the same atlas
+		// Do not assume how they are packed in the atlas
 		font:           struct {
 			glyph_dim:              [2]f32,
 			glyph_topleft_in_atlas: [ASCII_Char_Count][2]f32,
 		},
 	},
 	render: struct {
-		// NOTE: Assumed to be textured by one atlas and be drawn 1-to-1 in screen space
-		rects_screen_textured: [dynamic; 1024]Rect_Screen_Textured,
+		rects_px_space_textured: [dynamic; 1024]Rect_Px_Space_Textured,
 	},
 }
 
@@ -115,7 +118,7 @@ game_update_and_render :: proc(game_state: ^Game_State, delta_time_ms: f32) {
 
 	log.debug("update by", delta_time_ms, "ms")
 
-	clear(&game_state.render.rects_screen_textured)
+	clear(&game_state.render.rects_px_space_textured)
 	{
 		topleft := [2]f32{0, 0}
 		for log_entry in game_state.debug.log_circle_buf.entries {
@@ -138,11 +141,14 @@ render_string :: proc(game_state: ^Game_State, text: string, topleft_init: [2]f3
 
 render_rect_screen_textured :: proc(
 	game_state: ^Game_State,
-	rect_topleft: [2]f32,
+	rect_topleft_px_space: [2]f32,
 	tex_topleft_in_atlas: [2]f32,
 	dim: [2]f32,
 ) {
-	if (len(game_state.render.rects_screen_textured) < cap(game_state.render.rects_screen_textured)) {
-		append(&game_state.render.rects_screen_textured, Rect_Screen_Textured{rect_topleft, tex_topleft_in_atlas, dim})
+	if (len(game_state.render.rects_px_space_textured) < cap(game_state.render.rects_px_space_textured)) {
+		append(
+			&game_state.render.rects_px_space_textured,
+			Rect_Px_Space_Textured{rect_topleft_px_space, tex_topleft_in_atlas, dim},
+		)
 	}
 }

@@ -357,7 +357,7 @@ main :: proc() {
 
 	{
 		debug_font.tex = #load("assets_windows/debug_font_tex.bin")
-		dim_slice := #load("assets_windows/debug_font_dim.bin", []f32)
+		dim_slice := #load("assets_windows/debug_font_glyph_dim.bin", []f32)
 		assert(len(dim_slice) == 2)
 
 		game_state.debug.font.glyph_dim = {dim_slice[0], dim_slice[1]}
